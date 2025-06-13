@@ -1,0 +1,30 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+readme.md
+
+# Docker
+Dockerfile
+Dockerfile.dev
+docker-compose.yaml
+docker-compose.yml
+.dockerignore
+
+# Development files
+.air.toml
+tmp/
+build-errors.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

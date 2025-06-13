@@ -1,0 +1,49 @@
+services:
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: orchestrator
+    container_name: goexpert-orchestrator
+    ports:
+      - "8080:8080"
+    environment:
+      - WEATHER_SECRET_KEY=${WEATHER_SECRET_KEY:-f0b7cd19ad1841aeb40192648250906}
+      - ORCHESTRATOR_PORT=8080
+    networks:
+      - goexpert-network
+    # healthcheck:
+    #   test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080", "||", "exit", "1"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 3s
+
+  input-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: input
+    container_name: goexpert-input-service
+    ports:
+      - "8081:8081"
+    environment:
+      - ORCHESTRATOR_URL=http://orchestrator:8080
+      - INPUT_SERVICE_A_PORT=8081
+    networks:
+      - goexpert-network
+    # depends_on:
+    #   orchestrator:
+    #     condition: service_healthy
+    # healthcheck:
+    #   test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081", "||", "exit", "1"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 5s
+
+networks:
+  goexpert-network:
+    driver: bridge

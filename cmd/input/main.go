@@ -2,12 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
+	otel_provider "devzgabriel/goexpert-lab-telemetry/internal/otel"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 
 	"github.com/joho/godotenv"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type RequestBody struct {
@@ -31,26 +35,36 @@ func startServer() {
 	}
 
 	orchestratorURL := os.Getenv("ORCHESTRATOR_URL")
+	tracer := otel.Tracer("input-service-tracer")
 
 	if orchestratorURL == "" {
 		fmt.Println("ORCHESTRATOR_URL is not set in the environment variables")
 		panic("ORCHESTRATOR_URL is required")
 	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Header().Set("Content-Type", "text/plain")
 		w.Write([]byte("Hello, World! This is the Go Expert Lab Open Telemetry Input (Service A)!\n Use POST / to get the weather data for a given CEP.\n"))
 	})
 
-	http.HandleFunc("POST /", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		carrier := propagation.HeaderCarrier(r.Header)
+		ctx := r.Context()
+		ctx = otel.GetTextMapPropagator().Extract(ctx, carrier)
+		ctx, span := tracer.Start(ctx, os.Getenv("OTEL_SERVICE_NAME")+" - Input Service A - Input Handler")
+		defer span.End()
 
 		reqBody := RequestBody{}
 
 		err := json.NewDecoder(r.Body).Decode(&reqBody)
 
 		if err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			w.Header().Set("Content-Type", "application/json")
 			response := ErrorResponse{
 				Message: "Mensagem: invalid request body",
@@ -61,20 +75,31 @@ func startServer() {
 		}
 
 		if reqBody.Cep == "" || len(reqBody.Cep) != 8 {
-			http.Error(w, "CEP is required", http.StatusBadRequest)
 			w.Header().Set("Content-Type", "application/json")
 			response := ErrorResponse{
 				Message: "Mensagem: invalid zipcode",
 			}
-			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnprocessableEntity)
 			json.NewEncoder(w).Encode(response)
 			return
 		}
 
-		orchestratorResponse, err := http.Post(orchestratorURL, "application/json", bytes.NewBuffer(
+		var req *http.Request
+		req, err = http.NewRequestWithContext(ctx, "POST", orchestratorURL, bytes.NewBuffer(
 			[]byte(fmt.Sprintf(`{"cep": "%s"}`, reqBody.Cep)),
 		))
+		if err != nil {
+			http.Error(w, "Error creating request to orchestrator", http.StatusInternalServerError)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json")
+		otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
+		orchestratorResponse, err := http.DefaultClient.Do(req)
+
+		// orchestratorResponse, err := http.Post(orchestratorURL, "application/json", bytes.NewBuffer(
+		// 	[]byte(fmt.Sprintf(`{"cep": "%s"}`, reqBody.Cep)),
+		// ))
 
 		if err != nil {
 			http.Error(w, "Error fetching orchestrator response", http.StatusInternalServerError)
@@ -112,5 +137,17 @@ func startServer() {
 }
 
 func main() {
+	shutdown, err := otel_provider.InitProvider(os.Getenv("OTEL_SERVICE_NAME"), os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	if err != nil {
+		fmt.Printf("failed to initialize TracerProvider: %v\n", err)
+	}
+	defer func() {
+		if err := shutdown(context.Background()); err != nil {
+			fmt.Printf("failed to shutdown TracerProvider: %v\n", err)
+		} else {
+			fmt.Println("TracerProvider shutdown successfully")
+		}
+	}()
+
 	startServer()
 }

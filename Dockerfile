@@ -14,7 +14,7 @@ COPY . .
 
 # Build the application
 ARG SERVICE_NAME
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/${SERVICE_NAME}
+RUN CGO_ENABLED=0 GOOS=linux go build -a -o main ./cmd/${SERVICE_NAME}
 
 # Final stage
 FROM alpine:latest

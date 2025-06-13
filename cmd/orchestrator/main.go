@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	otel_provider "devzgabriel/goexpert-lab-telemetry/internal/otel"
 	"devzgabriel/goexpert-lab-telemetry/internal/services/cep"
 	"devzgabriel/goexpert-lab-telemetry/internal/services/weather"
 	"encoding/json"
@@ -9,6 +11,8 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type RequestBody struct {
@@ -32,19 +36,30 @@ func startServer() {
 	}
 
 	weatherSecretKey := os.Getenv("WEATHER_SECRET_KEY")
+	tracer := otel.Tracer("orchestrator-tracer")
 
 	if weatherSecretKey == "" {
 		fmt.Println("WEATHER_SECRET_KEY is not set in the environment variables")
 		weatherSecretKey = "f0b7cd19ad1841aeb40192648250906"
 	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Header().Set("Content-Type", "text/plain")
 		w.Write([]byte("Hello, World! This is the Go Expert Lab Open Telemetry Orchestrator (Service B)!\n Use POST / to get the weather data for a given CEP.\n"))
 	})
 
-	http.HandleFunc("POST /", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		carrier := propagation.HeaderCarrier(r.Header)
+		ctx := r.Context()
+		ctx = otel.GetTextMapPropagator().Extract(ctx, carrier)
+		_, span := tracer.Start(ctx, os.Getenv("OTEL_SERVICE_NAME")+" - Service B - Orchestrator Handler")
+		defer span.End()
 
 		reqBody := RequestBody{}
 
@@ -96,5 +111,16 @@ func startServer() {
 }
 
 func main() {
+	shutdown, err := otel_provider.InitProvider(os.Getenv("OTEL_SERVICE_NAME"), os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	if err != nil {
+		fmt.Printf("failed to initialize TracerProvider: %v\n", err)
+	}
+	defer func() {
+		if err := shutdown(context.Background()); err != nil {
+			fmt.Printf("failed to shutdown TracerProvider: %v\n", err)
+		} else {
+			fmt.Println("TracerProvider shutdown successfully")
+		}
+	}()
 	startServer()
 }

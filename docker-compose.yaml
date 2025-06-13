@@ -1,0 +1,71 @@
+
+services:
+  # The zipkin process services the UI, and also exposes a POST endpoint that
+  # instrumentation can send trace data to.
+  zipkin:
+    image: ghcr.io/openzipkin/zipkin-slim:${TAG:-latest}
+    container_name: zipkin
+    # Environment settings are defined here https://github.com/openzipkin/zipkin/blob/master/zipkin-server/README.md#environment-variables
+    environment:
+      - STORAGE_TYPE=mem
+      # Uncomment to enable self-tracing
+      # - SELF_TRACING_ENABLED=true
+      # Uncomment to increase heap size
+      # - JAVA_OPTS=-Xms128m -Xmx128m -XX:+ExitOnOutOfMemoryError
+    networks:
+      - goexpert-network
+    ports:
+      # Port used for the Zipkin UI and HTTP Api
+      - 9411:9411
+    # Uncomment to enable debug logging
+    # command: --logging.level.zipkin2=DEBUG
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: orchestrator
+    container_name: goexpert-orchestrator
+    ports:
+      - "8080:8080"
+    environment:
+      - WEATHER_SECRET_KEY=${WEATHER_SECRET_KEY:-f0b7cd19ad1841aeb40192648250906}
+      - ORCHESTRATOR_PORT=8080
+      - OTEL_SERVICE_NAME=orchestrator
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_RESOURCE_ATTRIBUTES="service.name=orchestrator,service.version=0.1.0"
+    networks:
+      - goexpert-network
+    # depends_on:
+    #   - jaeger-all-in-one
+    #   - zipkin-all-in-one
+    #   - prometheus
+    #   - otel-collector
+
+  input-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: input
+    container_name: goexpert-input-service
+    ports:
+      - "8081:8081"
+    environment:
+      - ORCHESTRATOR_URL=http://orchestrator:8080
+      - INPUT_SERVICE_A_PORT=8081
+      - OTEL_SERVICE_NAME=input-service
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - OTEL_RESOURCE_ATTRIBUTES="service.name=input-service,service.version=0.1.0"
+    networks:
+      - goexpert-network
+    # depends_on:
+    #   - jaeger-all-in-one
+    #   - zipkin-all-in-one
+    #   - prometheus
+    #   - otel-collector
+
+
+networks:
+  goexpert-network:
+    driver: bridge

@@ -35,125 +35,27 @@ type ErrorResponse struct {
 	Message string `json:"message"`
 }
 
-func startServer() {
-	err := godotenv.Load()
-	if err != nil {
-		fmt.Println("Error loading .env file")
-	}
-
-	weatherSecretKey := os.Getenv("WEATHER_SECRET_KEY")
-	tracer := otel.Tracer("orchestrator-tracer")
-
-	if weatherSecretKey == "" {
-		fmt.Println("WEATHER_SECRET_KEY is not set in the environment variables")
-		weatherSecretKey = "f0b7cd19ad1841aeb40192648250906"
-	}
-
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte("Hello, World! This is the Go Expert Lab Open Telemetry Orchestrator (Service B)!\n Use POST / to get the weather data for a given CEP.\n"))
-	})
-
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		carrier := propagation.HeaderCarrier(r.Header)
-		ctx := r.Context()
-		ctx = otel.GetTextMapPropagator().Extract(ctx, carrier)
-		_, span := tracer.Start(ctx, os.Getenv("OTEL_SERVICE_NAME")+" - Service B - Orchestrator Handler")
-		defer span.End()
-
-		reqBody := RequestBody{}
-
-		err := json.NewDecoder(r.Body).Decode(&reqBody)
-
-		if err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		if reqBody.Cep == "" || len(reqBody.Cep) != 8 {
-			http.Error(w, "CEP is required", http.StatusBadRequest)
-			return
-		}
-
-		cepResponse, err := cep.GetCepFromViaCep(reqBody.Cep)
-		if err != nil {
-			http.Error(w, "Error fetching CEP data", http.StatusInternalServerError)
-			return
-		}
-
-		if cepResponse.Cep == "" {
-			http.Error(w, "Invalid CEP", http.StatusNotFound)
-			return
-		}
-
-		weatherResponse, err := weather.GetWeatherData(cepResponse.City, weatherSecretKey)
-		if err != nil {
-			http.Error(w, "Error fetching weather data", http.StatusInternalServerError)
-			return
-		}
-
-		response := SuccessResponse{
-			TempC: weatherResponse.Current.TempC,
-			TempF: weatherResponse.Current.TempF,
-			TempK: weatherResponse.Current.TempC + 273,
-		}
-
-		fmt.Println("Request processed successfully for CEP:", reqBody.Cep)
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(response)
-	})
-
-	fmt.Printf("Starting server on port %s...\n", os.Getenv("ORCHESTRATOR_PORT"))
-	http.ListenAndServe(
-		fmt.Sprintf(":%s", os.Getenv("ORCHESTRATOR_PORT")), nil)
-}
-
 func main() {
-
 	err := godotenv.Load()
 	if err != nil {
 		fmt.Println("Error loading .env file")
 	}
-
-	// shutdown, err := otel_provider.InitProvider(os.Getenv("OTEL_SERVICE_NAME"), os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
-	// if err != nil {
-	// 	fmt.Printf("failed to initialize TracerProvider: %v\n", err)
-	// }
-	// defer func() {
-	// 	if err := shutdown(context.Background()); err != nil {
-	// 		fmt.Printf("failed to shutdown TracerProvider: %v\n", err)
-	// 	} else {
-	// 		fmt.Println("TracerProvider shutdown successfully")
-	// 	}
-	// }()
 
 	run()
 }
 
 func run() (err error) {
-	// Handle SIGINT (CTRL+C) gracefully.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	// Set up OpenTelemetry.
-	otelShutdown, err := otel_provider.SetupOTelSDK(ctx)
+	otelShutdown, err := otel_provider.InitProvider(os.Getenv("OTEL_SERVICE_NAME"), os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 	if err != nil {
 		return
 	}
-	// Handle shutdown properly so nothing leaks.
 	defer func() {
 		err = errors.Join(err, otelShutdown(context.Background()))
 	}()
 
-	// Start HTTP server.
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%s", os.Getenv("ORCHESTRATOR_PORT")),
 		BaseContext:  func(_ net.Listener) context.Context { return ctx },
@@ -166,18 +68,13 @@ func run() (err error) {
 		srvErr <- srv.ListenAndServe()
 	}()
 
-	// Wait for interruption.
 	select {
 	case err = <-srvErr:
-		// Error when starting HTTP server.
 		return
 	case <-ctx.Done():
-		// Wait for first CTRL+C.
-		// Stop receiving signal notifications as soon as possible.
 		stop()
 	}
 
-	// When Shutdown is called, ListenAndServe immediately returns ErrServerClosed.
 	err = srv.Shutdown(context.Background())
 	return
 }
@@ -188,7 +85,6 @@ func newHTTPHandler() http.Handler {
 	// handleFunc is a replacement for mux.HandleFunc
 	// which enriches the handler's HTTP instrumentation with the pattern as the http.route.
 	handleFunc := func(pattern string, handlerFunc func(http.ResponseWriter, *http.Request)) {
-		// Configure the "http.route" for the HTTP instrumentation.
 		handler := otelhttp.WithRouteTag(pattern, http.HandlerFunc(handlerFunc))
 		mux.Handle(pattern, handler)
 	}
@@ -200,7 +96,7 @@ func newHTTPHandler() http.Handler {
 		weatherSecretKey = "f0b7cd19ad1841aeb40192648250906"
 	}
 
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	handleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Header().Set("Content-Type", "text/plain")
 		w.Write([]byte("Hello, World! This is the Go Expert Lab Open Telemetry Orchestrator (Service B)!\n Use POST / to get the weather data for a given CEP.\n"))
@@ -221,7 +117,7 @@ func getHandler(tracer trace.Tracer, weatherSecretKey string) func(w http.Respon
 		carrier := propagation.HeaderCarrier(r.Header)
 		ctx := r.Context()
 		ctx = otel.GetTextMapPropagator().Extract(ctx, carrier)
-		_, span := tracer.Start(ctx, os.Getenv("OTEL_SERVICE_NAME")+" - Service B - Orchestrator Handler")
+		ctx, span := tracer.Start(ctx, os.Getenv("OTEL_SERVICE_NAME")+" - Service B - Orchestrator Handler")
 		defer span.End()
 
 		reqBody := RequestBody{}
@@ -238,7 +134,7 @@ func getHandler(tracer trace.Tracer, weatherSecretKey string) func(w http.Respon
 			return
 		}
 
-		cepResponse, err := cep.GetCepFromViaCep(reqBody.Cep)
+		cepResponse, err := cep.GetCepFromViaCepWithContext(ctx, reqBody.Cep)
 		if err != nil {
 			http.Error(w, "Error fetching CEP data", http.StatusInternalServerError)
 			return
@@ -249,7 +145,7 @@ func getHandler(tracer trace.Tracer, weatherSecretKey string) func(w http.Respon
 			return
 		}
 
-		weatherResponse, err := weather.GetWeatherData(cepResponse.City, weatherSecretKey)
+		weatherResponse, err := weather.GetWeatherDataWithContext(ctx, cepResponse.City, weatherSecretKey)
 		if err != nil {
 			http.Error(w, "Error fetching weather data", http.StatusInternalServerError)
 			return

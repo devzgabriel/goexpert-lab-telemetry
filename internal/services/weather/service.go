@@ -1,10 +1,15 @@
 package weather
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type WeatherResponse struct {
@@ -32,6 +37,19 @@ type WeatherResponse struct {
 }
 
 func GetWeatherData(city string, apiKey string) (WeatherResponse, error) {
+	return GetWeatherDataWithContext(context.Background(), city, apiKey)
+}
+
+func GetWeatherDataWithContext(ctx context.Context, city string, apiKey string) (WeatherResponse, error) {
+	tracer := otel.Tracer("weather-service-tracer")
+	ctx, span := tracer.Start(ctx, "GetWeatherData")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("weather.city", city),
+		attribute.Bool("weather.api_key_provided", apiKey != ""),
+	)
+
 	if city == "" {
 		fmt.Println("Error: city is empty")
 		return WeatherResponse{}, fmt.Errorf("city is empty")
@@ -41,23 +59,22 @@ func GetWeatherData(city string, apiKey string) (WeatherResponse, error) {
 		return WeatherResponse{}, fmt.Errorf("API key is empty")
 	}
 
-	url := fmt.Sprintf("https://api.weatherapi.com/v1/current.json?key=%s&q=%s", apiKey, url.QueryEscape(city))
+	weatherUrl := fmt.Sprintf("https://api.weatherapi.com/v1/current.json?key=%s&q=%s", apiKey, url.QueryEscape(city))
 
-	resp, err := http.Get(url)
+	client := http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", weatherUrl, nil)
+	if err != nil {
+		fmt.Println("Error creating weather request:", err)
+		return WeatherResponse{}, err
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Println("Error fetching weather data:", err)
 		return WeatherResponse{}, err
 	}
 	defer resp.Body.Close()
-
-	// DEBUG only
-	// body, err := io.ReadAll(resp.Body)
-	// if err != nil {
-	// 	fmt.Println("Error reading response body:", err)
-	// 	return WeatherResponse{}, err
-	// }
-	// fmt.Println("Response body:", string(body))
-	// END DEBUG
 
 	if resp.Body == nil {
 		fmt.Println("Error: response body is nil")
@@ -70,6 +87,13 @@ func GetWeatherData(city string, apiKey string) (WeatherResponse, error) {
 		fmt.Println("Error decoding weather response:", err)
 		return WeatherResponse{}, err
 	}
+
+	span.SetAttributes(
+		attribute.Float64("weather.temp_c", float64(weatherResponse.Current.TempC)),
+		attribute.Float64("weather.temp_f", float64(weatherResponse.Current.TempF)),
+		attribute.String("weather.location_name", weatherResponse.Location.Name),
+		attribute.String("weather.condition", weatherResponse.Current.Condition.Text),
+	)
 
 	return weatherResponse, nil
 }

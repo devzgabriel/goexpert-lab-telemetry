@@ -28,12 +28,10 @@ func GetCepFromViaCepWithContext(ctx context.Context, cep string) (ViaCepRespons
 	ctx, span := tracer.Start(ctx, "GetCepFromViaCep")
 	defer span.End()
 
-	// Add CEP as span attribute
 	span.SetAttributes(attribute.String("cep.value", cep))
 
-	// Create HTTP client with OpenTelemetry instrumentation
 	client := http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://viacep.com.br/ws/"+cep+"/json/", nil)
 	if err != nil {
 		fmt.Println("Error creating request:", err)
@@ -53,7 +51,6 @@ func GetCepFromViaCepWithContext(ctx context.Context, cep string) (ViaCepRespons
 		return ViaCepResponse{}, err
 	}
 
-	// Add response data as span attributes
 	span.SetAttributes(
 		attribute.String("cep.city", cepResponse.City),
 		attribute.String("cep.state", cepResponse.State),

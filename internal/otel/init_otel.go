@@ -19,7 +19,6 @@ import (
 func InitProvider(serviceName, collectorURL string) (func(context.Context) error, error) {
 	ctx := context.Background()
 
-	// Create resource with service metadata
 	res, err := resource.New(ctx,
 		resource.WithAttributes(
 			semconv.ServiceName(serviceName),
@@ -32,7 +31,6 @@ func InitProvider(serviceName, collectorURL string) (func(context.Context) error
 
 	log.Printf("Attempting to connect to OTLP collector at: %s", collectorURL)
 
-	// Create OTLP trace exporter with timeout and proper connection options
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -57,20 +55,16 @@ func InitProvider(serviceName, collectorURL string) (func(context.Context) error
 
 	log.Printf("Successfully connected to OTLP collector at: %s", collectorURL)
 
-	// Create batch span processor
 	bsp := sdktrace.NewBatchSpanProcessor(traceExporter)
 
-	// Create tracer provider
 	tracerProvider := sdktrace.NewTracerProvider(
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 		sdktrace.WithResource(res),
 		sdktrace.WithSpanProcessor(bsp),
 	)
 
-	// Set global tracer provider
 	otel.SetTracerProvider(tracerProvider)
 
-	// Set global propagator
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},
 		propagation.Baggage{},

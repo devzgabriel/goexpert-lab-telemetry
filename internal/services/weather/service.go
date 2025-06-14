@@ -45,7 +45,6 @@ func GetWeatherDataWithContext(ctx context.Context, city string, apiKey string) 
 	ctx, span := tracer.Start(ctx, "GetWeatherData")
 	defer span.End()
 
-	// Add input parameters as span attributes
 	span.SetAttributes(
 		attribute.String("weather.city", city),
 		attribute.Bool("weather.api_key_provided", apiKey != ""),
@@ -62,9 +61,8 @@ func GetWeatherDataWithContext(ctx context.Context, city string, apiKey string) 
 
 	weatherUrl := fmt.Sprintf("https://api.weatherapi.com/v1/current.json?key=%s&q=%s", apiKey, url.QueryEscape(city))
 
-	// Create HTTP client with OpenTelemetry instrumentation
 	client := http.Client{Transport: otelhttp.NewTransport(http.DefaultTransport)}
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", weatherUrl, nil)
 	if err != nil {
 		fmt.Println("Error creating weather request:", err)
@@ -78,15 +76,6 @@ func GetWeatherDataWithContext(ctx context.Context, city string, apiKey string) 
 	}
 	defer resp.Body.Close()
 
-	// DEBUG only
-	// body, err := io.ReadAll(resp.Body)
-	// if err != nil {
-	// 	fmt.Println("Error reading response body:", err)
-	// 	return WeatherResponse{}, err
-	// }
-	// fmt.Println("Response body:", string(body))
-	// END DEBUG
-
 	if resp.Body == nil {
 		fmt.Println("Error: response body is nil")
 		return WeatherResponse{}, fmt.Errorf("response body is nil")
@@ -99,7 +88,6 @@ func GetWeatherDataWithContext(ctx context.Context, city string, apiKey string) 
 		return WeatherResponse{}, err
 	}
 
-	// Add response data as span attributes
 	span.SetAttributes(
 		attribute.Float64("weather.temp_c", float64(weatherResponse.Current.TempC)),
 		attribute.Float64("weather.temp_f", float64(weatherResponse.Current.TempF)),

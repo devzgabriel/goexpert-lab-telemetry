@@ -12,6 +12,8 @@ Chamando a API:
 curl -X POST http://localhost:8081 -H "Content-Type: application/json" -d '{"cep": "04475030"}'
 ```
 
+![alt text](image.png)
+
 
 ## Descrição
 

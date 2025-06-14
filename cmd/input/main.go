@@ -172,7 +172,8 @@ func run() (err error) {
 	defer stop()
 
 	// Set up OpenTelemetry.
-	otelShutdown, err := otel_provider.SetupOTelSDK(ctx)
+	// otelShutdown, err := otel_provider.SetupOTelSDK(ctx)
+	otelShutdown, err := otel_provider.InitProvider(os.Getenv("OTEL_SERVICE_NAME"), os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 	if err != nil {
 		return
 	}
@@ -221,7 +222,7 @@ func newHTTPHandler() http.Handler {
 		mux.Handle(pattern, handler)
 	}
 
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	handleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Header().Set("Content-Type", "text/plain")
 		w.Write([]byte("Hello, World! This is the Go Expert Lab Open Telemetry Input (Service A)!\n Use POST / to get the weather data for a given CEP.\n"))

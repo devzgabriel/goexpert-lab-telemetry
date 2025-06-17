@@ -159,13 +159,13 @@ func getHandler(tracer trace.Tracer, orchestratorURL string) func(w http.Respons
 		orchestratorResponse, err := http.DefaultClient.Do(req)
 
 		if err != nil {
-			http.Error(w, "Error fetching orchestrator response", http.StatusInternalServerError)
+			http.Error(w, "Mensagem: can not find zipcode", http.StatusInternalServerError)
 			return
 		}
 		defer orchestratorResponse.Body.Close()
 
 		if orchestratorResponse.StatusCode != http.StatusOK {
-			http.Error(w, "Error fetching orchestrator response", http.StatusInternalServerError)
+			http.Error(w, "Mensagem: can not find zipcode", http.StatusInternalServerError)
 			return
 		}
 

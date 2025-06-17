@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -132,7 +133,9 @@ func getHandler(tracer trace.Tracer, orchestratorURL string) func(w http.Respons
 		cepValueAttr := attribute.String("cep.value", reqBody.Cep)
 		span.SetAttributes(cepValueAttr)
 
-		if reqBody.Cep == "" || len(reqBody.Cep) != 8 {
+		isOnlyDigits, err := regexp.Match(`^\d+$`, []byte(reqBody.Cep))
+
+		if err != nil || reqBody.Cep == "" || len(reqBody.Cep) != 8 || !isOnlyDigits {
 			w.Header().Set("Content-Type", "application/json")
 			response := ErrorResponse{
 				Message: "Mensagem: invalid zipcode",
